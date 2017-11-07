@@ -1,0 +1,20 @@
+name: hello-express
+version: 0.0.1
+commit_hash: c1ad221
+uncommitted_changes: true
+jobs:
+- name: hello-express
+  version: f58bf33961e8b0c99cb2fe2ded895fedb5a906a2
+  fingerprint: f58bf33961e8b0c99cb2fe2ded895fedb5a906a2
+  sha1: ce68fb835805787b855350a6d671a5fe44a9467b
+packages:
+- name: hello-express
+  version: 32fc64bfe67646592676269a7f3d9dcf6cce4e20
+  fingerprint: 32fc64bfe67646592676269a7f3d9dcf6cce4e20
+  sha1: e3add719cff4c12b78f7be9cff34ba118a2253e3
+  dependencies: []
+- name: node
+  version: 79eb0b067432883bd8710c9b9daa88e885b631a6
+  fingerprint: 79eb0b067432883bd8710c9b9daa88e885b631a6
+  sha1: 7a1c9292c1941db3adafcc3ddee3a72768532000
+  dependencies: []
