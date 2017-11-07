@@ -1,0 +1,335 @@
+---
+resources:
+- name: repo
+  type: git
+  source:
+    uri: git@github.com:making/hello-express-boshrelease.git
+    branch: master
+    private_key: {{github-private-key}}
+- name: repo-version
+  type: semver
+  source:
+    uri: git@github.com:making/hello-express-boshrelease.git
+    branch: version
+    private_key: {{github-private-key}}
+    file: version
+    driver: git
+- name: gh-release
+  type: github-release
+  source:
+    user: making
+    repository: hello-express-boshrelease
+    access_token: {{github-access-token}}
+
+jobs:
+- name: bosh-deploy-dev-in-docker
+  serial: true
+  plan:
+  - aggregate:
+    - get: repo
+      trigger: true
+  - task: download-blobs
+    privileged: true
+    config:
+      <<: *DOWNLOAD_BLOBS
+  - task: bosh-create-release
+    config:
+      <<: *BOSH_CREATE_RELEASE
+  - task: bosh-deploy
+    privileged: true
+    params:
+      RELEASE_NAME: hello-express
+      IS_DOCKER: true
+    config:
+      <<: *BOSH_DEPLOY
+- name: bosh-deploy-dev-in-exsiting-env
+  serial: true
+  plan:
+  - aggregate:
+    - get: repo
+      trigger: true
+  - task: download-blobs
+    privileged: true
+    config:
+      <<: *DOWNLOAD_BLOBS
+  - task: bosh-create-release
+    config:
+      <<: *BOSH_CREATE_RELEASE
+  - task: bosh-deploy
+    params:
+      RELEASE_NAME: hello-express
+      IS_DOCKER: false
+      <<: *BOSH
+    config:
+      <<: *BOSH_DEPLOY
+- name: ship-it
+  plan:
+  - aggregate:
+    - get: repo
+      passed:
+      - bosh-deploy-dev-in-exsiting-env
+      - bosh-deploy-dev-in-docker
+    - get: repo-version
+  - task: download-blobs
+    privileged: true
+    config:
+      <<: *DOWNLOAD_BLOBS
+  - task: create-release
+    params:
+      <<: *BOSH
+      GIT_EMAIL: {{git-email}}
+      GIT_NAME: {{git-name}}
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: bosh/main-bosh-docker
+      inputs:
+      - name: repo
+      - name: repo-version
+      - name: compiled
+      outputs:
+      - name: releases
+      - name: updated-repo
+      run:
+        path: bash
+        args:
+        - -c
+        - |
+          set -e
+          cd repo
+          shopt -s dotglob
+          cp -r ./* ../updated-repo
+          rm -rf .final_builds releases
+          bosh add-blob ../compiled/node/node-v8.9.0-linux-x64.tar.xz node/node-v8.9.0-linux-x64.tar.xz
+          bosh add-blob ../compiled/hello-express/hello-express-offline.zip hello-express/hello-express-offline.zip
+          VERSION=`cat ../repo-version/number`
+          TARBALL=hello-express-boshrelease-${VERSION}.tgz
+          bosh create-release --force --version=${VERSION} --final --tarball=../releases/${TARBALL}
+          
+          SHA1=`sha1sum ../releases/${TARBALL} | awk '{print $1}'`
+          mkdir -p .sha1
+          echo ${SHA1} > .sha1/${VERSION}
+          
+          cp -r ./* ../updated-repo
+          cd ../updated-repo
+          git config --global user.email "${GIT_EMAIL}"
+          git config --global user.name "${GIT_NAME}"
+          git add -A
+          git commit -m "Release ${VERSION}"
+          # Release Note
+          cat <<EOF > ../releases/note.md
+          ## Deployment
+          \`\`\` yaml
+          # manifest.yml
+          ---
+          name: hello-express
+          releases:
+          - name: hello-express
+            version: ${VERSION}
+            url: https://github.com/making/hello-express-boshrelease/releases/download/${VERSION}/${TARBALL}
+            sha1: ${SHA1}
+          stemcells:
+          - alias: trusty
+            os: ubuntu-trusty
+            version: latest
+          instance_groups:
+          - name: hello-express
+            jobs:
+            - name: hello-express
+              release: hello-express
+              properties: {}
+            instances: 1
+            stemcell: trusty
+            azs: [z1]
+            vm_type: default
+            networks:
+            - name: default
+          update:
+            canaries: 1
+            max_in_flight: 1
+            serial: false
+            canary_watch_time: 1000-60000
+            update_watch_time: 1000-60000
+          \`\`\`
+          To deploy:
+          \`\`\`
+          bosh deploy -d hello-express manifest.yml
+          \`\`\`
+          EOF
+  - put: repo
+    params:
+      repository: updated-repo
+      tag: repo-version/number
+  - put: gh-release
+    params:
+      name: repo-version/number
+      tag: repo-version/number
+      body: releases/note.md
+      globs:
+      - releases/*.tgz
+
+########################################
+
+- name: bump-to-next-patch-version
+  plan:
+  - aggregate:
+    - get: repo
+      trigger: true
+      passed:
+      - ship-it
+    - get: repo-version
+      params:
+        bump: patch
+  - put: repo-version
+    params:
+      file: repo-version/number
+
+- name: bump-to-next-minor-version
+  plan:
+  - aggregate:
+    - get: repo-version
+      params:
+        bump: minor
+  - put: repo-version
+    params:
+      file: repo-version/number
+
+- name: bump-to-next-majar-version
+  plan:
+  - aggregate:
+    - get: repo-version
+      params:
+        bump: majar
+  - put: repo-version
+    params:
+      file: repo-version/number
+
+params:
+  bosh: &BOSH
+    BOSH_CLIENT: {{bosh-client}}
+    BOSH_ENVIRONMENT: {{bosh-environment}}
+    BOSH_CLIENT_SECRET: {{bosh-client-secret}}
+    BOSH_CA_CERT: {{bosh-ca-cert}}
+tasks:
+  download-blobs: &DOWNLOAD_BLOBS
+    platform: linux
+    image_resource:
+      type: docker-image
+      source:
+        repository: node
+        tag: 8.9.0
+    inputs:
+    - name: repo
+    outputs:
+    - name: compiled
+    caches:
+    - path: repo/blobs
+    run:
+      path: sh
+      args: 
+      - -c
+      - |
+        set -e
+        cd repo
+
+        mkdir -p blobs/node
+        if [ ! -f blobs/node/node-v8.9.0-linux-x64.tar.xz ];then
+          curl -L -O -J https://nodejs.org/dist/v8.9.0/node-v8.9.0-linux-x64.tar.xz
+          mv node-v8.9.0-linux-x64.tar.xz blobs/node/
+        fi
+
+        mkdir -p blobs/hello-express
+        if [ ! -f blobs/hello-express/hello-express-offline.zip ]; then
+          cd src/hello-express
+          npm install
+
+          apt-get update
+          apt-get install -y zip
+          zip -r ../../hello-express-offline.zip *
+          cd ../..
+          mv hello-express-offline.zip blobs/hello-express/
+        fi
+
+        cp -ra blobs/* ../compiled/
+        find ../compiled 
+  bosh-create-release: &BOSH_CREATE_RELEASE
+    platform: linux
+    image_resource:
+      type: docker-image
+      source:
+        repository: bosh/main-bosh-docker
+    inputs:
+    - name: repo
+    - name: compiled
+    outputs:
+    - name: releases
+    run:
+      path: bash
+      args: 
+      - -c
+      - |
+        set -e
+        cd repo
+        rm -rf .final_builds releases
+
+        bosh add-blob ../compiled/node/node-v8.9.0-linux-x64.tar.xz node/node-v8.9.0-linux-x64.tar.xz
+        bosh add-blob ../compiled/hello-express/hello-express-offline.zip hello-express/hello-express-offline.zip
+
+        bosh create-release --name=hello-express-dev --force --timestamp-version --tarball=../releases/hello-express-boshrelease.tgz
+  bosh-deploy: &BOSH_DEPLOY
+    platform: linux
+    image_resource:
+      type: docker-image
+      source:
+        repository: bosh/main-bosh-docker
+    inputs:
+    - name: repo
+    - name: releases
+    caches:
+    - path: repo/.bosh
+    run:
+      path: bash
+      args: 
+      - -c
+      - |
+        set -e
+        if [ "${IS_DOCKER}" == "true" ];then
+          echo "Starting bosh..."
+          rm -rf ~/.bosh
+          ln -fs $(pwd)/repo/.bosh ~/.bosh
+          start-bosh
+          source /tmp/local-bosh/director/env
+          bosh upload-stemcell https://bosh.io/d/stemcells/bosh-warden-boshlite-ubuntu-trusty-go_agent?v=3445.11
+        fi
+        bosh env
+        bosh upload-release releases/*.tgz
+        cd repo
+        
+        cat <<EOF > ops.yml
+        - type: replace
+          path: /name
+          value: ${RELEASE_NAME}-dev
+        - type: replace
+          path: /releases/name=${RELEASE_NAME}/name
+          value: ${RELEASE_NAME}-dev
+        - type: replace
+          path: /instance_groups/name=${RELEASE_NAME}/jobs/name=${RELEASE_NAME}/release
+          value: ${RELEASE_NAME}-dev
+        EOF
+
+        bosh -n deploy -d ${RELEASE_NAME}-dev manifest.yml -o ops.yml
+        bosh vms -d ${RELEASE_NAME}-dev
+        ip=`bosh vms -d ${RELEASE_NAME}-dev | grep ${RELEASE_NAME} | awk '{print $4}'`
+        
+        echo "Running Smoke Test... to ${ip}"
+        for i in `seq 1 50`;do
+          status_code=`curl -L http://${ip}:3000 -o /dev/null -w '%{http_code}\n' -s`
+          if [ "${status_code}" != "200" ];then
+            echo "Test Failed: Got ${status_code}"
+            exit 1
+          fi
+        done
+        echo "Test Passed"
+        bosh -n delete-deployment -d ${RELEASE_NAME}-dev
