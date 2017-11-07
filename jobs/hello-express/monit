@@ -1,0 +1,5 @@
+check process hello-express
+  with pidfile /var/vcap/sys/run/hello-express/hello-express.pid
+  start program "/var/vcap/jobs/hello-express/bin/ctl start"
+  stop program "/var/vcap/jobs/hello-express/bin/ctl stop"
+  group vcap

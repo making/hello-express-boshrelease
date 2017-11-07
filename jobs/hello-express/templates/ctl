@@ -1,0 +1,40 @@
+#!/bin/bash
+
+RUN_DIR=/var/vcap/sys/run/hello-express
+LOG_DIR=/var/vcap/sys/log/hello-express
+
+PIDFILE=$RUN_DIR/hello-express.pid
+RUNAS=vcap
+
+export PATH=/var/vcap/packages/node/bin:$PATH
+
+function pid_exists() {
+  ps -p $1 &> /dev/null
+}
+
+case $1 in
+
+  start)
+    mkdir -p $RUN_DIR $LOG_DIR
+    chown -R $RUNAS:$RUNAS $RUN_DIR $LOG_DIR
+
+    echo $$ > $PIDFILE
+
+    exec chpst -u $RUNAS:$RUNAS \
+      node /var/vcap/packages/hello-express/app.js \
+      >>$LOG_DIR/server.stdout.log 2>>$LOG_DIR/server.stderr.log
+    ;;
+
+  stop)
+    PID=$(head -1 $PIDFILE)
+    if [ ! -z $PID ] && pid_exists $PID; then
+      kill $PID
+    fi
+    while [ -e /proc/$PID ]; do sleep 0.1; done
+    rm -f $PIDFILE
+    ;;
+
+  *)
+  echo "Usage: ctl {start|stop|console}" ;;
+esac
+exit 0

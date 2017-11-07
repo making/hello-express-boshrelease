@@ -1,0 +1,10 @@
+---
+name: hello-express
+templates:
+  ctl: bin/ctl
+
+packages:
+- node
+- hello-express
+
+properties: {}

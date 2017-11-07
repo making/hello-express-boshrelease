@@ -1,0 +1,4 @@
+set -e
+
+tar xf node/node-*.tar.xz
+mv node-*/* ${BOSH_INSTALL_TARGET}/

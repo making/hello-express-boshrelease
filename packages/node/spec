@@ -1,0 +1,7 @@
+---
+name: node
+
+dependencies: []
+
+files:
+- node/node-v8.9.0-linux-x64.tar.xz

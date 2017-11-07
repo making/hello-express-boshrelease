@@ -1,0 +1,30 @@
+---
+name: hello-express
+
+releases:
+- name: hello-express
+  version: latest
+
+stemcells:
+- os: ubuntu-trusty
+  alias: trusty
+  version: latest
+
+instance_groups:
+- name: hello-express
+  jobs:
+  - name: hello-express
+    release: hello-express
+    properties: {}
+  instances: 1
+  stemcell: trusty
+  azs: [z1]
+  vm_type: default
+  networks:
+  - name: default
+
+update:
+  canaries: 1
+  max_in_flight: 3
+  canary_watch_time: 30000-600000
+  update_watch_time: 5000-600000

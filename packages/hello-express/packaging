@@ -1,0 +1,3 @@
+set -e
+
+unzip hello-express/hello-express-offline.zip -d ${BOSH_INSTALL_TARGET}/
